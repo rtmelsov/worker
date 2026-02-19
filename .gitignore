@@ -1,2 +1,35 @@
-./main_test.go
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
 
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+*.coverprofile
+coverage.txt
+profile.cov
+
+# Dependency directories (remove the comment below to ignore it)
+# vendor/
+
+# Go workspace files
+go.work
+go.work.sum
+
+# Environment variables
+.env
+
+# IDEs and Editors
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS specific
+.DS_Store
+Thumbs.db
