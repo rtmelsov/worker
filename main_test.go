@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"log"
+
 	"worker/internal/config"
-	"worker/internal/database"
 	"worker/internal/handlers"
 	"worker/internal/helpers"
 	"worker/internal/services"
@@ -16,6 +16,7 @@ import (
 	camundaClient "github.com/citilinkru/camunda-client-go/v3"
 	"github.com/citilinkru/camunda-client-go/v3/processor"
 	"github.com/joho/godotenv"
+	"github.com/segmentio/kafka-go"
 	"github.com/sirupsen/logrus"
 )
 
@@ -39,25 +40,28 @@ func bootstrapLocalEnv(t *testing.T) *localEnv {
 	config.Initialize(entry, "bpm-workers")
 
 	client := camundaClient.NewClient(camundaClient.ClientOptions{
-		EndpointUrl: config.Config().CamundaClient.EndpointURL,
-		ApiUser:     config.Config().CamundaClient.APIUser,
-		ApiPassword: config.Config().CamundaClient.APIPassword,
-		Timeout:     time.Second * time.Duration(config.Config().CamundaClient.Timeout),
+		EndpointUrl:         config.Config().CamundaClient.EndpointURL,
+		Timeout:             time.Second * time.Duration(config.Config().CamundaClient.Timeout),
+		AuthorizationHeader: config.Config().CamundaClient.CamundaAuthBasic,
 	})
 
-	db, err := database.InitDB(entry, config.Config().DBConnection)
-	if err != nil {
-		t.Fatalf("failed to connect to the database: %v", err)
+	kafkaWriter := &kafka.Writer{
+		Addr: kafka.TCP(config.Config().KafkaBrokers...),
+		// Balancer определяет, как распределяются сообщения по партициям.
+		// LeastBytes - хороший выбор по умолчанию.
+		Balancer: &kafka.LeastBytes{},
+		// Topic:   "ucp-tracking-group",
 	}
 
-	t.Cleanup(func() {
-		if closeErr := db.Close(); closeErr != nil {
-			t.Logf("failed to close database connection: %v", closeErr)
+	// Обязательно закрываем соединение при завершении работы приложения
+	defer func() {
+		if err := kafkaWriter.Close(); err != nil {
+			logger.Errorf("Ошибка при закрытии Kafka Writer: %v", err)
 		}
-	})
+	}()
 
-	service := services.NewService(entry, db, config.Config())
-	handler := handlers.NewHandler(client, entry, db, service, config.Config())
+	service := services.NewService(entry, kafkaWriter, config.Config())
+	handler := handlers.NewHandler(client, entry, service, config.Config())
 
 	return &localEnv{handler: handler}
 }
@@ -83,7 +87,7 @@ func TestLocalBootstrap(t *testing.T) {
 	}
 
 	// AmlCheckClient
-	_, err := env.handler.CollectInitialData(ctx)
+	_, err := env.handler.LiteProcessRouter(ctx)
 	if err != nil {
 		log.Print("ColvirGetGraph: ", "Error text\n", err.Error())
 	}

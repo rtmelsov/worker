@@ -14,6 +14,17 @@ func GetVar(ctx *processor.Context, key string) string {
 	return ""
 }
 
+func GetVarNum(ctx *processor.Context, key string) int32 {
+	if v, ok := ctx.Task.Variables[key]; ok && v.Value != nil {
+		value, ok := v.Value.(int32)
+		if !ok {
+			return 0
+		}
+		return value
+	}
+	return 0
+}
+
 func GetVarBool(ctx *processor.Context, key string) bool {
 	if v, ok := ctx.Task.Variables[key]; ok && v.Value != nil {
 		value, ok := v.Value.(bool)

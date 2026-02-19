@@ -1,19 +1,18 @@
 package main
 
 import (
-	"context"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
 	"worker/internal/config"
-	"worker/internal/database"
 	"worker/internal/handlers"
 	"worker/internal/services"
 
 	camundaClient "github.com/citilinkru/camunda-client-go/v3"
 	"github.com/joho/godotenv"
+	"github.com/segmentio/kafka-go"
 	"github.com/sirupsen/logrus"
 )
 
@@ -31,29 +30,32 @@ func main() {
 
 	// 2. Инициализация клиента Camunda
 	client := camundaClient.NewClient(camundaClient.ClientOptions{
-		EndpointUrl: config.Config().CamundaClient.EndpointURL,
-		ApiUser:     config.Config().CamundaClient.APIUser,
-		ApiPassword: config.Config().CamundaClient.APIPassword,
-		Timeout:     time.Second * time.Duration(config.Config().CamundaClient.Timeout),
+		EndpointUrl:         config.Config().CamundaClient.EndpointURL,
+		Timeout:             time.Second * time.Duration(config.Config().CamundaClient.Timeout),
+		AuthorizationHeader: config.Config().CamundaClient.CamundaAuthBasic,
 	})
 
-	// 3. Подключение к БД
-	db, err := database.InitDB(entry, config.Config().DBConnection)
-	if err != nil {
-		logger.Fatalf("Failed to connect to the database: %v", err)
+	kafkaWriter := &kafka.Writer{
+		Addr: kafka.TCP(config.Config().KafkaBrokers...),
+		// Balancer определяет, как распределяются сообщения по партициям.
+		// LeastBytes - хороший выбор по умолчанию.
+		Balancer: &kafka.LeastBytes{},
+		// Topic:   "ucp-tracking-group",
 	}
-	// Важно: отложенное закрытие соединения при падении или выходе
-	// Но при Graceful Shutdown мы закроем его вручную ниже
-	// defer db.Close()
+
+	// Обязательно закрываем соединение при завершении работы приложения
+	defer func() {
+		if err := kafkaWriter.Close(); err != nil {
+			logger.Errorf("Ошибка при закрытии Kafka Writer: %v", err)
+		}
+	}()
 
 	// 4. Инициализация слоев
-	service := services.NewService(entry, db, config.Config())
-	handler := handlers.NewHandler(client, entry, db, service, config.Config())
+	service := services.NewService(entry, kafkaWriter, config.Config())
+	handler := handlers.NewHandler(client, entry, service, config.Config())
 
 	// 5. Регистрация воркеров
-	handler.AddWorker("", "liteProcess", handler.WrapHandler(handler.LiteProcessRouter, false, true))
-	handler.AddWorker("", "collectInitialData", handler.WrapHandler(handler.CollectInitialData, false, true))
-	handler.AddWorker("", "finishProcess", handler.WrapHandler(handler.FinishProcess, false, true))
+	handler.AddWorker("", "firstParser", handler.WrapHandler(handler.LiteProcessRouter, false, true))
 
 	entry.Info("Application started")
 
@@ -65,24 +67,6 @@ func main() {
 	// Блокируем выполнение main, пока не придет сигнал
 	<-quit
 	entry.Info("Shutting down server...")
-
-	// 7. Очистка ресурсов
-	// Здесь можно закрыть соединения с БД, остановить воркеры и т.д.
-
-	// Если у вас есть метод остановки воркеров, вызовите его здесь:
-	// handler.Stop()
-
-	ctx, done := context.WithTimeout(context.Background(), time.Second*30)
-	defer done()
-
-	sqlDB, err := db.Conn(ctx)
-	if err == nil {
-		if err := sqlDB.Close(); err != nil {
-			entry.Errorf("Error closing database connection: %v", err)
-		} else {
-			entry.Info("Database connection closed")
-		}
-	}
 
 	entry.Info("Server exited")
 }

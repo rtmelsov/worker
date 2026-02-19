@@ -4,6 +4,7 @@ package config
 import (
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/sirupsen/logrus"
 )
@@ -14,47 +15,37 @@ var cfg *Configuration
 // Configuration — основная структура конфига
 type Configuration struct {
 	ServiceName   string
+	KafkaBrokers  []string
 	CamundaClient CamundaConfig
-	DBConnection  DatabaseConfig
 }
 
 // CamundaConfig — настройки для Camunda
 type CamundaConfig struct {
-	EndpointURL string
-	APIUser     string
-	APIPassword string
-	Timeout     int // Тайм-аут в секундах
-}
-
-// DatabaseConfig — настройки для БД
-type DatabaseConfig struct {
-	Host     string
-	Port     string
-	User     string
-	Password string
-	DBName   string
-	SSLMode  string
+	EndpointURL      string
+	CamundaAuthBasic string
+	Timeout          int // Тайм-аут в секундах
 }
 
 // Initialize — читает переменные окружения и заполняет структуру
 func Initialize(logger *logrus.Entry, serviceName string) {
 	logger.Info("Initializing configuration...")
 
+	brokersEnv := os.Getenv("KAFKA_BROKERS")
+	if brokersEnv == "" {
+		// Если переменная пустая, приложение не сможет работать, поэтому падаем
+		logger.Error("Критическая ошибка: KAFKA_BROKERS не задан в окружении")
+	}
+
+	// Разбиваем строку по запятой на слайс строк
+	kafkaBrokers := strings.Split(brokersEnv, ",")
+
 	cfg = &Configuration{
-		ServiceName: serviceName,
+		ServiceName:  serviceName,
+		KafkaBrokers: kafkaBrokers,
 		CamundaClient: CamundaConfig{
-			EndpointURL: getEnv("CAMUNDA_URL", "http://localhost:8080/engine-rest"),
-			APIUser:     getEnv("CAMUNDA_USER", ""),     // Оставь пустым, если нет Auth
-			APIPassword: getEnv("CAMUNDA_PASSWORD", ""), // Оставь пустым, если нет Auth
-			Timeout:     getEnvAsInt("CAMUNDA_TIMEOUT", 30),
-		},
-		DBConnection: DatabaseConfig{
-			Host:     getEnv("DB_HOST", "localhost"),
-			Port:     getEnv("DB_PORT", "5432"),
-			User:     getEnv("DB_USER", "postgres"),
-			Password: getEnv("DB_PASSWORD", "postgres"),
-			DBName:   getEnv("DB_NAME", "camunda"),
-			SSLMode:  getEnv("DB_SSLMODE", "disable"),
+			EndpointURL:      getEnv("CAMUNDA_URL", "http://localhost:8080/engine-rest"),
+			CamundaAuthBasic: getEnv("CAMUNDA_AUTH_BASIC", ""), // Оставь пустым, если нет Auth
+			Timeout:          getEnvAsInt("CAMUNDA_TIMEOUT", 30),
 		},
 	}
 
@@ -88,4 +79,3 @@ func getEnvAsInt(key string, defaultVal int) int {
 	}
 	return defaultVal
 }
-

@@ -19,14 +19,13 @@ type Handler struct {
 	processor *processor.Processor
 	logger    *logrus.Entry
 	db        *sql.DB
-	service   *services.Service
+	services  *services.Service
 	config    *config.Configuration
 }
 
 func NewHandler(
 	client *camundaClient.Client,
 	logger *logrus.Entry,
-	db *sql.DB,
 	service *services.Service,
 	cfg *config.Configuration,
 ) *Handler {
@@ -46,8 +45,7 @@ func NewHandler(
 		config:    cfg,
 		processor: proc,
 		logger:    logger,
-		db:        db,
-		service:   service,
+		services:  service,
 	}
 }
 
